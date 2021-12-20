@@ -1,0 +1,12 @@
+The input side expects 5V. Each input is independent and may be
+wired to have a common +5V or a common ground if desired.
+
+The output side expects 24V and Ground in the top right dual screw
+connector. The optocoulers switch high (PNP fashion) to the lower
+right dual screw connector.
+
+Diagnostic LEDs may be stuffed into the 2-hole machined sockets.
+Check the polarity
+
+PC817 (4-pin) or 4N35 (6-pin) optocouplers may be used. Set the
+jump adjacent to the input side of each optocoupler appropriately.
