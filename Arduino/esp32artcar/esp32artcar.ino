@@ -1,5 +1,69 @@
 //-----------------------------------------------------------------------------
-// Art Car controller prototype for an ESP32
+// ArtCar controller prototype for an ESP32
+//-----------------------------------------------------------------------------
+
+
+// ArtCar firmware for ESP32-WROOM
+// Version: 0.7.0.0
+// (c) Copyright 2022, Daniel Neville
+
+
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+
+//-----------------------------------------------------------------------------
+
+
+// PS3 Controls:
+//
+// Start: Enable motors
+// Square: Disable motors
+// Start + Square: Reset
+// Circle + LeftShoulder: Trim left
+// Circle + RightShoulder: Trim right
+// Circle + LeftShoulder + RightShoulder: Reset trim
+// Triangle: User function 1
+// Select + Left: ISO layout (left stick only)
+// Select + Up: H-pattern layout (speed and turn rate moderated)
+// Select + Right: VH layout (2-channel RC car control)
+// Select + Down:: Unmoderated H-pattern layout
+// Select + Triangle: Full speed mode ("high gear")
+// Select + Cross: Quarter speed mode ("low gear")
+// DPad (Up, Down, Left, Right) Jog
+//
+// To do:
+//
+// Select + Circle: Begin joystick and trigger range calibration
+// Joystick and trigger calibration:
+//     Start with provisional slop ranges.
+//     An axis which varies by more than 30% of its nominal range
+//     will have its range reset.
+//     An axis which has been within nominal slop range for at least
+//     0.75 seconds after a slop reset will cause the slop margins
+//     to begin floating.
+// Joystick and trigger slop calibration:
+// Select + LeftShoulder + RightShoulder + LeftStick + RightStick:
+//     Unlock PWM calibration mode activation for 3 seconds
+// Select + Square: Begin PWM calibration mode (if unlocked)
+// PWM calibration mode:
+//     LeftStick/RightStick: Toggle enable state for left/right motor
+//     Up + Joy Up/down: Adjust forward limit
+//     Down + Joy Up/down: Adjust reverse 10% speed
+//     Left + Joy Up/down: Adjust reverse threshold
+//     Right + Joy Up/down: Adjust forward 10% speed
+
+
 //-----------------------------------------------------------------------------
 
 
@@ -48,7 +112,7 @@
 // (WPD) GPIO12 b    b GPIO4 (WPD)
 //            GND|   b GPIO0 BOOT BUTTON (WPU)
 //       GPIO13 n|   b GPIO2 (LED) (WPD)
-//           D2 f|  nb GPIO15 (WPU) (Pulling down suppresses bot log)
+//           D2 f|  nb GPIO15 (WPU) (Pulling down suppresses boot log)
 //           D3 f|   f D1
 //          CMD f|   f D0
 //           5VIN    f CLK
@@ -78,29 +142,31 @@ enum {
 };
 
 enum {
-  kVOBitMotorEnable,    // GPIO18
-  kVOBitMotorActivity,  // GPIO32
-  kVOBitStickActivity,  // GPIO19
-  kVOBitUserOut1,       // GPIO23
-  kVOBitStopLamp,       // GPIO27
-  kVOBitReversingLamp,  // GPIO26
-  kVOBitLeftBlinker,    // GPIO25
-  kVOBitRightBlinker,   // GPIO33
+  kVOBitMotorEnableL,   // GPIO18 -> GPIO26
+  kVOBitMotorEnableR,   // xxxxxx -> GPIO17
+  //kVOBitMotorActivity,  // GPIO32
+  kVOBitBluetoothActivity,  // GPIO19 -> GPIO33
+  kVOBitUserOut1,       // GPIO23 -> GPIO25
+  //kVOBitStopLamp,       // GPIO27
+  //kVOBitReversingLamp,  // GPIO26
+  //kVOBitLeftBlinker,    // GPIO25
+  //kVOBitRightBlinker,   // GPIO33
 };
 
 // Be very careful to match Virtual Output enum definitions above with the
 // table pin assignment table below to avoid incorrect targetting of pins.
 
 const VOPin vo_pins[] = {
-  // Virtual Output pin  GPIO     Sense               Drive and Sink
-  {kVOBitMotorEnable,     18, kVOSenseActiveLow,  kVOutputSinkOnly},
-  {kVOBitMotorActivity,   32, kVOSenseActiveLow,  kVOutputSinkOnly},
-  {kVOBitStickActivity,   19, kVOSenseActiveLow,  kVOutputSinkOnly},
-  {kVOBitUserOut1,        23, kVOSenseActiveLow,  kVOutputSinkOnly},
-  {kVOBitStopLamp,        27, kVOSenseActiveLow,  kVOutputSinkOnly},
-  {kVOBitReversingLamp,   26, kVOSenseActiveLow,  kVOutputSinkOnly},
-  {kVOBitLeftBlinker,     25, kVOSenseActiveLow,  kVOutputSinkOnly},
-  {kVOBitRightBlinker,    33, kVOSenseActiveLow,  kVOutputSinkOnly},
+  // Virtual Output pin    GPIO     Sense               Drive and Sink
+  {kVOBitMotorEnableL,      26, kVOSenseActiveLow,  kVOutputSinkOnly},
+  {kVOBitMotorEnableR,      17, kVOSenseActiveLow,  kVOutputSinkOnly},
+  //{kVOBitMotorActivity,     32, kVOSenseActiveLow,  kVOutputSinkOnly},
+  {kVOBitBluetoothActivity, 33, kVOSenseActiveLow,  kVOutputSinkOnly},
+  {kVOBitUserOut1,          25, kVOSenseActiveLow,  kVOutputSinkOnly},
+  //{kVOBitStopLamp,          27, kVOSenseActiveLow,  kVOutputSinkOnly},
+  //{kVOBitReversingLamp,     26, kVOSenseActiveLow,  kVOutputSinkOnly},
+  //{kVOBitLeftBlinker,       25, kVOSenseActiveLow,  kVOutputSinkOnly},
+  //{kVOBitRightBlinker,      33, kVOSenseActiveLow,  kVOutputSinkOnly},
 };
 
 const int kNumVOs = sizeof(vo_pins) / sizeof(VOPin);
@@ -118,8 +184,8 @@ const int kRightPWMIdle = 2047;
 const int kLeftPWMGain = 2047 * 90 / 100;
 const int kRightPWMGain = 2047 * 90 / 100;
 
-const int kLeftMotorPWMPin = 16;
-const int kRightMotorPWMPin = 17;
+const int kLeftMotorPWMPin = 27;
+const int kRightMotorPWMPin = 16;
 const int kLeftMotorPWMInverted = true;
 const int kRightMotorPWMInverted = true;
 
@@ -132,31 +198,31 @@ const int kRightMotorPWMInverted = true;
 void InitCar(Car &car, CarMALs &car_mals) {
 
   car.turn_ctrl = {
-    3.0f,  // Max turning stick knob right speed (unsigned)
-    3.0f,  // Max turning stick knob left speed (unsigned)
-    5.0f,  // Max turning stick knob acceleration (unsigned)
+    1.0f,  // Max turning stick knob right speed (unsigned)
+    1.0f,  // Max turning stick knob left speed (unsigned)
+    3.0f,  // Max turning stick knob acceleration (unsigned)
     0.0f,  // Turning stick knob position (in range -1..0..+1)
   };
 
   {
     TurnCaps &T = car.turn_caps;
-    T.max_lat_accel = 4.0f;  // in m/s^2: 1.47m/s^2 std max. for highways.
-    T.max_turn_rate = 20.0f * DEG_TO_RAD;  // in rad/s
+    T.max_lat_accel = 2.0f;  // in m/s^2: 1.47m/s^2 std max. for highways.
+    T.max_turn_rate = 12.5f * DEG_TO_RAD;  // in rad/s
     T.reversing_omega_slope = 0.4f;  // For stick-to-turn-centre mode
     T.reverse_turns = false;  // Stick-to-turn-centre mode (Set by gcs)
   }
 
   {
     CarSpeedCtrl &C = car.speed_ctrl;
-    C.throttle_factor = 0.10f;
-    C.joy_brake_speed_threshold = 0.20f;
+    C.throttle_factor = 0.08f;
+    C.joy_brake_speed_threshold = 0.12f;
     C.enable_joy_brake = 0;  // To be loaded with gcs.flags.enable_joy_brake
   }
 
-  car.jog_factor = 0.1f;
-  car.turn_jog_factor = 0.2f;
+  car.jog_factor = 0.18f;
+  car.turn_jog_factor = 0.25f;
   car.axle_width = 2.5f;  // m
-  car.max_wheel_speed = 8.0f / 3.6f;  // m/s
+  car.max_wheel_speed = 5.5f / 3.6f;  // m/s
   car.max_body_speed = 299792458.0f;  // m/s (will be adjusted)
   car.max_hpat_omega = 999.9f;  // rad/s (will be adjusted)
 
@@ -172,6 +238,7 @@ void InitGeneralCtrlState(GeneralCtrlState &gcs) {
 
   const GeneralCtrlState default_gcs = {
     .idm = kJoystickVH,
+    .pwm_scaler = 0.25f,
     .flags = {
       .use_alt_ctrl_method = 0,
       .reverse_turns = 0,
@@ -224,36 +291,39 @@ uint32_t last_us_count;
 uint32_t last_ms_count;
 int blink_timer = 0;
 
+// For a car with a max speed of 6.5km/h (1.8056m/s) at 50Hz, multiply
+// the m/s and m/s/s figures here by 27.6923 to get the Hz and Hz/s figures.
+
 CarMALs car_mals = {
   // The wheel acceleration limits are in terms of the linear speed
   // of the centre of the hub relative to the ground or road surface.
   // All parameters should be strictly positive.
   .wheel_mal = {
-    3.00f, // Forward acceleration in m/s^2
-    3.00f, // Forward deceleration in m/s^2
-    3.00f, // Reverse acceleration in m/s^2
-    3.00f, // Reverse deceleration in m/s^2
-    10.0f, // Jerk in m/s^3
+    1.50f,  // Forward acceleration in m/s^2
+    1.50f,  // Forward deceleration in m/s^2
+    1.50f,  // Reverse acceleration in m/s^2
+    1.50f,  // Reverse deceleration in m/s^2
+    9.00f,  // Jerk in m/s^3
   },
   // The normal or "cruise" acceleration limits should be less than
   // the wheel acceleration limits to ensure that the motors are able
   // to catch up to commanded speeds.
   .cruise_mal = {
-    2.00f, // Forward acceleration in m/s^2
-    2.00f, // Forward deceleration in m/s^2
-    2.00f, // Reverse acceleration in m/s^2
-    2.00f, // Reverse deceleration in m/s^2
-    7.0f, // Jerk in m/s^3
+    0.80f,  // Forward acceleration in m/s^2
+    1.00f,  // Forward deceleration in m/s^2
+    0.80f,  // Reverse acceleration in m/s^2
+    1.00f,  // Reverse deceleration in m/s^2
+    4.00f,  // Jerk in m/s^3
   },
   // The braking acceleration limits should be less than the wheel
   // acceleration limits if the motors do all the braking. If real
   // proportional brakes are used, higher decelerations are possible,
   .braking_mal = {
-    3.00f, // oward acceleration in m/s^2
-    3.00f, // Forward deceleration in m/s^2
-    3.00f, // Reverse acceleration in m/s^2
-    3.00f, // Reverse deceleration in m/s^2
-    10.0f, // Jerk in m/s^3
+    0.80f,  // Fowrard acceleration in m/s^2
+    1.40f,  // Forward deceleration in m/s^2
+    0.80f,  // Reverse acceleration in m/s^2
+    1.40f,  // Reverse deceleration in m/s^2
+    8.00f,  // Jerk in m/s^3
   }
 };
 
@@ -265,6 +335,8 @@ Blinkers blinkers;
 int8_t prev_joy_braking_state = false;
 BTActivity bt_activity;
 
+int16_t display_countdown = 100;
+int8_t display_state = 0;
 //int battery = 0;
 
 
@@ -345,6 +417,7 @@ void OnGamepadEvent()
   if (Ps3.event.button_down.start) {
     if (not Ps3.data.button.square) {
       gcs.flags.enable_motors = true;
+      Ps3.setRumble(80.0f, 30.0f);
     } else {
       SystemReset();
     }
@@ -353,6 +426,7 @@ void OnGamepadEvent()
     if (not Ps3.data.button.start) {
       gcs.flags.enable_motors = false;
       InitInputState(input_state, gpcal);
+      Ps3.setRumble(80.0f, 30.0f);
     } else {
       SystemReset();
     }
@@ -363,13 +437,15 @@ void OnGamepadEvent()
       gcs.idm = kJoystickISO;
       gcs.flags.enable_joy_brake = true;
       gcs.flags.use_alt_ctrl_method = false;
+      Ps3.setRumble(75.0f, 25.0f);
     }
   }
   if (Ps3.event.button_down.up) {
     if (Ps3.data.button.select) {
-      gcs.idm = kJoystickHPat;
+      gcs.idm = kJoystickModHPat;
       gcs.flags.enable_joy_brake = false;
       gcs.flags.use_alt_ctrl_method = false;
+      Ps3.setRumble(75.0f, 25.0f);
     }
   }
   if (Ps3.event.button_down.right) {
@@ -377,33 +453,39 @@ void OnGamepadEvent()
       gcs.idm = kJoystickVH;
       gcs.flags.enable_joy_brake = true;
       gcs.flags.use_alt_ctrl_method = false;
+      Ps3.setRumble(75.0f, 25.0f);
     }
   }
   if (Ps3.event.button_down.down) {
     if (Ps3.data.button.select) {
-      gcs.idm = kJoystickVH;
-      gcs.flags.enable_joy_brake = true;
-      gcs.flags.use_alt_ctrl_method = true;
+      gcs.idm = kJoystickHPat;
+      gcs.flags.enable_joy_brake = false;
+      gcs.flags.use_alt_ctrl_method = false;
+      Ps3.setRumble(75.0f, 25.0f);
     }
   }
 
   if (Ps3.event.button_down.triangle) {
-    Ps3.setRumble(75.0f, 20.0f);
+    if (Ps3.data.button.select) {
+      // Select high gear.
+      gcs.pwm_scaler = 1.0f;
+      Ps3.setPlayer(2);
+      Ps3.setRumble(90.0f, 30.0f);
+    } else {
+      // Fire the laser!
+      Ps3.setRumble(75.0f, 20.0f);
+    }
   }
 
-/*
-  if (battery != Ps3.data.status.battery){
-    battery = Ps3.data.status.battery;
-    Serial.print("The controller battery is ");
-    if (battery == ps3_status_battery_charging)      Serial.println("charging");
-    else if (battery == ps3_status_battery_full)     Serial.println("FULL");
-    else if (battery == ps3_status_battery_high)     Serial.println("HIGH");
-    else if (battery == ps3_status_battery_low)      Serial.println("LOW");
-    else if (battery == ps3_status_battery_dying)    Serial.println("DYING");
-    else if (battery == ps3_status_battery_shutdown) Serial.println("SHUTDOWN");
-    else Serial.println("UNDEFINED");
+  if (Ps3.event.button_down.cross) {
+    if (Ps3.data.button.select) {
+      // Select low gear.
+      gcs.pwm_scaler = 0.25f;
+      Ps3.setPlayer(1);
+      Ps3.setRumble(80.0f, 25.0f);
+    }
   }
-*/
+
 }
 
 
@@ -508,7 +590,7 @@ void loop() {
       gcs.flags.enable_motors = false;
     }
 
-    if (gcs.flags.enable_motors) {
+    if (true or gcs.flags.enable_motors) {
       input_state.leftx = uint8_t(int16_t(Ps3.data.analog.stick.lx) + 128);
       input_state.lefty = uint8_t(int16_t(Ps3.data.analog.stick.ly) + 128);
       input_state.rightx = uint8_t(int16_t(Ps3.data.analog.stick.rx) + 128);
@@ -530,8 +612,8 @@ void loop() {
     {
       int lm_ocr;
       int rm_ocr;
-      float ls;
-      float rs;
+      float lsf;
+      float rsf;
       float lw_trim_factor;
       float rw_trim_factor;
       {
@@ -542,26 +624,15 @@ void loop() {
         rw_trim_factor = constrain(x, 0.0f, 1.0f);
       }
       
-      if (gcs.flags.enable_motors) {
-        ls = car.lw_ctrl.target_speed * lw_trim_factor;
-        rs = car.rw_ctrl.target_speed * rw_trim_factor;
+      if (true or gcs.flags.enable_motors) {
+        float f = gcs.pwm_scaler / car.max_wheel_speed;
+        lsf = car.lw_ctrl.target_speed * lw_trim_factor * f;
+        rsf = car.rw_ctrl.target_speed * rw_trim_factor * f;
       } else {
-        ls = rs = 0.0;
+        lsf = rsf = 0.0;
       }
-      lm_ocr = round(kLeftPWMIdle + kLeftPWMGain * ls);
-      rm_ocr = round(kRightPWMIdle + kRightPWMGain * rs);
-      if (0) {
-        if (ls >= 0.0f) {
-          lm_ocr = round(kLeftPWMGain * ls);
-        } else {
-          lm_ocr = round(-kLeftPWMGain * ls);
-        }
-        if (rs >= 0.0f) {
-          rm_ocr = round(2 * kRightPWMGain * rs);
-        } else {
-          rm_ocr = round(2 * -kRightPWMGain * rs);
-        }
-      }
+      lm_ocr = round(kLeftPWMIdle + kLeftPWMGain * lsf);
+      rm_ocr = round(kRightPWMIdle + kRightPWMGain * rsf);
       lm_ocr = constrain(lm_ocr,
           kLeftPWMIdle - kLeftPWMGain, kLeftPWMIdle + kLeftPWMGain);
       rm_ocr = constrain(rm_ocr,
@@ -576,24 +647,26 @@ void loop() {
     bool lw_moving = fabsf(car.lw_ctrl.current_speed) > moving_threshold;
     bool rw_moving = fabsf(car.rw_ctrl.current_speed) > moving_threshold;
     bool btc = bt_activity.state == 2;
-    vo_states = WriteBit(vo_states, kVOBitMotorEnable,
+    vo_states = WriteBit(vo_states, kVOBitMotorEnableL,
         gcs.flags.enable_motors);
-    vo_states = WriteBit(vo_states, kVOBitStickActivity,
+    vo_states = WriteBit(vo_states, kVOBitMotorEnableR,
+        gcs.flags.enable_motors);
+    vo_states = WriteBit(vo_states, kVOBitBluetoothActivity,
         bt_activity.lamp_state);
-    vo_states = WriteBit(vo_states, kVOBitMotorActivity,
-        btc and (lw_moving or rw_moving));
+    //vo_states = WriteBit(vo_states, kVOBitMotorActivity,
+    //    btc and (lw_moving or rw_moving));
     vo_states = WriteBit(vo_states, kVOBitUserOut1,
         btc and input_state.buttons.triangle);
-    vo_states = WriteBit(vo_states, kVOBitReversingLamp,
-        btc and gcs.flags.reversing_lamp);
-    vo_states = WriteBit(vo_states, kVOBitStopLamp,
-        btc and gcs.flags.stop_lamp);
-    vo_states = WriteBit(vo_states, kVOBitLeftBlinker,
-        btc and ((blinkers.state >> 1) & 1)
-        and (blinkers.phase < blinkers.on_period));
-    vo_states = WriteBit(vo_states, kVOBitRightBlinker,
-        btc and ((blinkers.state >> 0) & 1) 
-        and (blinkers.phase < blinkers.on_period));
+    //vo_states = WriteBit(vo_states, kVOBitReversingLamp,
+    //    btc and gcs.flags.reversing_lamp);
+    //vo_states = WriteBit(vo_states, kVOBitStopLamp,
+    //    btc and gcs.flags.stop_lamp);
+    //vo_states = WriteBit(vo_states, kVOBitLeftBlinker,
+    //    btc and ((blinkers.state >> 1) & 1)
+    //    and (blinkers.phase < blinkers.on_period));
+    //vo_states = WriteBit(vo_states, kVOBitRightBlinker,
+    //    btc and ((blinkers.state >> 0) & 1) 
+    //    and (blinkers.phase < blinkers.on_period));
 
     if (0) {
       if (prev_joy_braking_state != car.speed_ctrl.joy_braking_state) {
@@ -640,6 +713,60 @@ void loop() {
     }
     
     prev_joy_braking_state = car.speed_ctrl.joy_braking_state;
+
+    display_countdown -= delta_ms;
+    
+    if (display_countdown <= delta_ms) {
+
+      int playernum;
+      
+      switch (display_state) {
+        
+        case 0:
+          switch (Ps3.data.status.battery) {
+            case ps3_status_battery_full:     playernum = 10; break;
+            case ps3_status_battery_high:     playernum = 9; break;
+            case ps3_status_battery_low:      playernum = 7; break;
+            case ps3_status_battery_dying:    playernum = 4; break;
+            case ps3_status_battery_shutdown: playernum = 4; break;
+            case ps3_status_battery_charging: playernum = 0; break;
+            default: playernum = 0; break;
+          }
+          if (!playernum) {
+            playernum = 10;
+          }
+          Ps3.setPlayer(playernum);
+          display_countdown += 1500;
+          display_state = 1;
+          break;
+          
+        case 1:
+          display_countdown += 1500;
+          display_state = 2;
+          switch (gcs.idm) {
+            case kJoystickVH:       playernum = 8; break;
+            case kJoystickISO:      playernum = 3; break;
+            case kJoystickHPat:     playernum = 5; break;
+            case kJoystickModHPat:  playernum = 6; break;
+            default: playernum = 0; break;
+          }
+          if (playernum) Ps3.setPlayer(playernum);
+          break;
+          
+        default:
+          if (gcs.pwm_scaler >= 0.95f) {
+            Ps3.setPlayer(2);  // Full speed range
+          } else {
+            Ps3.setPlayer(1);  // Low speed range
+          }
+          display_countdown += 2000;
+          display_state = 0;
+          break;
+          
+      }
+      
+    }
+    
     
   } // A definite time has passed.
   

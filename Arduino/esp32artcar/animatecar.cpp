@@ -1,3 +1,29 @@
+//-----------------------------------------------------------------------------
+// Animation (and integration) of Car and General Control State
+//-----------------------------------------------------------------------------
+
+
+// (c) Copyright 2022, Daniel Neville
+
+// This file is part of ArtCar.
+//
+// ArtCar is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// ArtCar is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with ArtCar. If not, see <https://www.gnu.org/licenses/>.
+
+
+//-----------------------------------------------------------------------------
+
+
 #include <stdint.h>
 
 #include "animatecar.h"
@@ -8,8 +34,6 @@
 #include "blinkers.h"
 
 
-//-----------------------------------------------------------------------------
-// Animation (and integration) of Car and General Control State
 //-----------------------------------------------------------------------------
 
 
@@ -28,9 +52,11 @@ void AnimateGCSAndCar(
   float max_omega_for_speed;
   float max_omega = car.turn_caps.max_turn_rate;
   float max_ctrl_speed = car.max_body_speed;
-  if (gcs.idm == kJoystickHPat and not gcs.flags.limit_turn_rate) {
-    max_ctrl_speed = car.max_wheel_speed;
-    max_omega = car.max_hpat_omega;
+  if (gcs.idm == kJoystickHPat or gcs.idm == kJoystickModHPat) {
+    if (not gcs.flags.limit_turn_rate) {
+      max_ctrl_speed = car.max_wheel_speed;
+      max_omega = car.max_hpat_omega;
+    }
   }
   max_omega_for_speed = max_omega;
 
@@ -41,18 +67,20 @@ void AnimateGCSAndCar(
   float lefttrigger = JoyAxis2Float(inp.lefttrigger, gpcal.lefttrigger);
   float righttrigger = JoyAxis2Float(inp.righttrigger, gpcal.righttrigger);
 
+  float left_joy_y = -JoyAxis2Float(inp.lefty, gpcal.lefty);
+  float right_joy_y = -JoyAxis2Float(inp.righty, gpcal.righty);
+  
   // Input layout
 
   {
 
     float left_joy_x = JoyAxis2Float(inp.leftx, gpcal.leftx);
-    float left_joy_y = -JoyAxis2Float(inp.lefty, gpcal.lefty);
     float right_joy_x = JoyAxis2Float(inp.rightx, gpcal.rightx);
-    float right_joy_y = -JoyAxis2Float(inp.righty, gpcal.righty);
 
     switch (gcs.idm) {
 
       case kJoystickHPat:
+      case kJoystickModHPat:
         {
           float raw_hpat_left = left_joy_y;
           float raw_hpat_right = right_joy_y;
@@ -139,10 +167,12 @@ void AnimateGCSAndCar(
   if (gcs.flags.use_alt_ctrl_method and not is_jogging) {
     const static float trig_jog_thres = 0.1f;
     const static float inv_cpl_tjt = 1.0f / (1.0f - trig_jog_thres);
-    float lt1 = (1.0f - lefttrigger - trig_jog_thres) * inv_cpl_tjt;
-    float rt1 = (1.0f - righttrigger - trig_jog_thres) * inv_cpl_tjt;
-    if (lt1 > 0.0f) {
-      joystick_y *= (1.0f - (1.0f - car.turn_jog_factor) * lt1);
+    float lt1 = (lefttrigger - trig_jog_thres) * inv_cpl_tjt;
+    float rt1 = (righttrigger - trig_jog_thres) * inv_cpl_tjt;
+    float t1 = fmaxf(lt1, rt1);
+    t1 = constrain(t1, 0.0f, 1.0f);
+    if (t1 > 0.0f) {
+      joystick_y *= (1.0f - (1.0f - car.jog_factor) * (1.0f - t1));
     }
   }
 
@@ -178,8 +208,11 @@ void AnimateGCSAndCar(
   float inv_max_wheel_speed = 1.0f / car.max_wheel_speed;
   hpat_left = (cmd_speed - half_diff_speed) * inv_max_wheel_speed;
   hpat_right = (cmd_speed + half_diff_speed) * inv_max_wheel_speed;
+
   hpat_left = constrain(hpat_left, -1.0f, +1.0f);
   hpat_right = constrain(hpat_right, -1.0f, +1.0f);
+
+  // ODDITY: hpat_left and hpat_right not used! <<<<<<<<<
 
   // Speed control
 
@@ -195,8 +228,17 @@ void AnimateGCSAndCar(
   if (not gcs.flags.soften_speed) {
     S.ForceSpeed(joystick_y * max_ctrl_speed * (1.0f - bf));
   }
+
   car.lw_ctrl.target_speed = S.current_speed - half_diff_speed;
   car.rw_ctrl.target_speed = S.current_speed + half_diff_speed;
+
+  // Unmoderated H-pattern control
+ 
+  if (gcs.idm == kJoystickHPat) {
+    car.lw_ctrl.target_speed = car.max_wheel_speed * left_joy_y;
+    car.rw_ctrl.target_speed = car.max_wheel_speed * right_joy_y;
+  }
+  
   car.lw_ctrl.Animate();
   car.rw_ctrl.Animate();
 
