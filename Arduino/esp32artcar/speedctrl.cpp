@@ -7,7 +7,7 @@
 
 // This file is part of ArtCar.
 //
-// ArtCar is free software: you can redistribute it and/or modify it
+// ArtCar is free software: You can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
@@ -33,7 +33,7 @@
 //-----------------------------------------------------------------------------
 
 
-SpeedCtrl::SpeedCtrl(const MotorAccLimits &motor_acc_limits):
+SpeedCtrl::SpeedCtrl(const MotorAccLimits& motor_acc_limits):
   mal {motor_acc_limits},
   _v_pos_ctrl {QPosCtrl(
     motor_acc_limits.max_fwd_accel,

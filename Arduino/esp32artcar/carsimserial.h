@@ -9,7 +9,7 @@
 
 // This file is part of ArtCar.
 //
-// ArtCar is free software: you can redistribute it and/or modify it
+// ArtCar is free software: You can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
@@ -37,10 +37,10 @@
 
 void SetArtCarSimStateStr(
   char (&buf8z)[9],
-  InputState &inp,
-  Car &car,
-  GeneralCtrlState &gcs,
-  Blinkers &blinkers
+  InputState& inp,
+  Car& car,
+  GeneralCtrlState& gcs,
+  Blinkers& blinkers
 );
 
 

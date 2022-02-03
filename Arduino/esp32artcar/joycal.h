@@ -9,7 +9,7 @@
 
 // This file is part of ArtCar.
 //
-// ArtCar is free software: you can redistribute it and/or modify it
+// ArtCar is free software: You can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
@@ -27,6 +27,8 @@
 
 
 #include <stdint.h>
+
+#include "inputstate.h"
 
 
 //-----------------------------------------------------------------------------
@@ -58,13 +60,55 @@ typedef struct {
 
 
 //-----------------------------------------------------------------------------
+// Joystick axis calibration state, used during the calibration procedure
+//-----------------------------------------------------------------------------
+
+
+typedef struct {
+  uint16_t slop_time_ms: 15;
+  bool floating: 1;
+} JoyAxisCalState;
+
+
+//-----------------------------------------------------------------------------
+// Gamepad calibration state, used during the calibration procedure
+//-----------------------------------------------------------------------------
+
+
+typedef struct {
+  JoyAxisCalState leftx;
+  JoyAxisCalState lefty;
+  JoyAxisCalState rightx;
+  JoyAxisCalState righty;
+  JoyAxisCalState lefttrigger;
+  JoyAxisCalState righttrigger;
+} GamepadCalState;
+
+
+//-----------------------------------------------------------------------------
 // Joystick functions
 //-----------------------------------------------------------------------------
 
 
-uint8_t JoyAxisMidSlop(JoyAxisCal &axis_cal);
-float JoyAxis2Float(uint8_t x, const JoyAxisCal &axis_cal);
-void InitGamepadCalibration(GamepadCal &gpcal);
+uint8_t JoyAxisMidSlop(JoyAxisCal& axis_cal);
+float JoyAxis2Float(uint8_t x, const JoyAxisCal& axis_cal);
+
+void InitGamepadCalibration(GamepadCal& gpcal);
+
+void CalibrateAxis(
+  JoyAxisCal& calibration,
+  uint8_t value,
+  const JoyAxisCal& thresholds,
+  JoyAxisCalState& state,
+  uint16_t delta_time_ms
+);
+
+void CalibrateGamepad(
+  GamepadCal& calibration,
+  const InputState& input,
+  GamepadCalState& state,
+  uint16_t delta_time_ms
+);
 
 
 //-----------------------------------------------------------------------------

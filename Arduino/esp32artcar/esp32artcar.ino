@@ -8,7 +8,7 @@
 // (c) Copyright 2022, Daniel Neville
 
 
-// This program is free software: you can redistribute it and/or modify
+// This program is free software: You can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
@@ -27,48 +27,46 @@
 
 // PS3 Controls:
 //
+// PS: Connect (10s to disconnect)
 // Start: Enable motors
 // Square: Disable motors
-// Start + Square: Reset
-// Circle + LeftShoulder: Trim left
-// Circle + RightShoulder: Trim right
-// Circle + LeftShoulder + RightShoulder: Reset trim
-// Triangle: User function 1
+// Select + Square: Reset (and disconnect)
+// Select + Circle: Begin joystick and trigger range calibration
 // Select + Left: ISO layout (left stick only)
 // Select + Up: H-pattern layout (speed and turn rate moderated)
 // Select + Right: VH layout (2-channel RC car control)
 // Select + Down:: Unmoderated H-pattern layout
 // Select + Triangle: Full speed mode ("high gear")
 // Select + Cross: Quarter speed mode ("low gear")
+// Circle + LeftShoulder: Trim left
+// Circle + RightShoulder: Trim right
+// Circle + LeftShoulder + RightShoulder: Reset trim
+// Triangle: User function 1 (Class 5 Laser)
 // DPad (Up, Down, Left, Right) Jog
 //
 // To do:
 //
-// Select + Circle: Begin joystick and trigger range calibration
-// Joystick and trigger calibration:
-//     Start with provisional slop ranges.
-//     An axis which varies by more than 30% of its nominal range
-//     will have its range reset.
-//     An axis which has been within nominal slop range for at least
-//     0.75 seconds after a slop reset will cause the slop margins
-//     to begin floating.
-// Joystick and trigger slop calibration:
 // Select + LeftShoulder + RightShoulder + LeftStick + RightStick:
 //     Unlock PWM calibration mode activation for 3 seconds
-// Select + Square: Begin PWM calibration mode (if unlocked)
+// Select + Triangle: Begin PWM calibration mode (if unlocked)
 // PWM calibration mode:
-//     LeftStick/RightStick: Toggle enable state for left/right motor
+//     LeftShoulder/RightShoulder: Enable left/right motor
+//     Play: Enable both motors
+//     Square: Disable both motors (and apply parking brakes)
 //     Up + Joy Up/down: Adjust forward limit
-//     Down + Joy Up/down: Adjust reverse 10% speed
-//     Left + Joy Up/down: Adjust reverse threshold
-//     Right + Joy Up/down: Adjust forward 10% speed
+//     Down + Joy Up/down: Adjust reverse limit
+//     Left + Joy Up/down: Adjust zero
+//     Right + Joy Up/down: Adjust zero (fine)
+//     (Joy Left/Right also fine adjust)
+//     Cross: Default calibration
+//     Circle: Exit and Save calibration
+// Serial IO expander
 
 
 //-----------------------------------------------------------------------------
 
 
-#include <EEPROM.h>
-
+#include <string.h>
 #include <Ps3Controller.h>
 
 #include "qposctrl.h"
@@ -79,6 +77,7 @@
 #include "carmals.h"
 #include "car.h"
 #include "joycal.h"
+#include "joycalnvm.h"
 #include "inputstate.h"
 #include "gcstate.h"
 #include "animatecar.h"
@@ -87,6 +86,7 @@
 #include "bitfiddling.h"
 #include "virtualio.h"
 #include "carsimserial.h"
+#include "ps3ledpats.h"
 
 
 //-----------------------------------------------------------------------------
@@ -120,8 +120,8 @@
 // 
 // Key: f: Flash   b: Boot   n: Noisy (on boot)
 //
-// "EN" is the 3.3V regulator enable pin. Pulling this to
-// ground resets the MCU.
+// "EN" is the 3.3V regulator enable pin. Pulling this to ground
+// resets the MCU.
 // On many boards, USB-serial wires RTS to EN, DTR to GPIO0:BOOT.
 // Internal WPU/WPDs are 45kohms. If switches are to be used, 
 // stronger (10kohm) PU/PD resistors should be added.
@@ -195,7 +195,7 @@ const int kRightMotorPWMInverted = true;
 //-----------------------------------------------------------------------------
 
 
-void InitCar(Car &car, CarMALs &car_mals) {
+void InitCar(Car& car, CarMALs& car_mals) {
 
   car.turn_ctrl = {
     1.0f,  // Max turning stick knob right speed (unsigned)
@@ -205,7 +205,7 @@ void InitCar(Car &car, CarMALs &car_mals) {
   };
 
   {
-    TurnCaps &T = car.turn_caps;
+    TurnCaps& T = car.turn_caps;
     T.max_lat_accel = 2.0f;  // in m/s^2: 1.47m/s^2 std max. for highways.
     T.max_turn_rate = 12.5f * DEG_TO_RAD;  // in rad/s
     T.reversing_omega_slope = 0.4f;  // For stick-to-turn-centre mode
@@ -213,7 +213,7 @@ void InitCar(Car &car, CarMALs &car_mals) {
   }
 
   {
-    CarSpeedCtrl &C = car.speed_ctrl;
+    CarSpeedCtrl& C = car.speed_ctrl;
     C.throttle_factor = 0.08f;
     C.joy_brake_speed_threshold = 0.12f;
     C.enable_joy_brake = 0;  // To be loaded with gcs.flags.enable_joy_brake
@@ -234,7 +234,7 @@ void InitCar(Car &car, CarMALs &car_mals) {
 //-----------------------------------------------------------------------------
 
 
-void InitGeneralCtrlState(GeneralCtrlState &gcs) {
+void InitGeneralCtrlState(GeneralCtrlState& gcs) {
 
   const GeneralCtrlState default_gcs = {
     .idm = kJoystickVH,
@@ -267,7 +267,7 @@ void InitGeneralCtrlState(GeneralCtrlState &gcs) {
 //-----------------------------------------------------------------------------//-----------------------------------------------------------------------------
 
 
-void InitInputState(InputState &inp, GamepadCal &gpcal) {
+void InitInputState(InputState& inp, GamepadCal& gpcal) {
 
   inp.leftx = JoyAxisMidSlop(gpcal.leftx);
   inp.lefty = JoyAxisMidSlop(gpcal.lefty);
@@ -335,9 +335,16 @@ Blinkers blinkers;
 int8_t prev_joy_braking_state = false;
 BTActivity bt_activity;
 
-int16_t display_countdown = 100;
-int8_t display_state = 0;
-//int battery = 0;
+int16_t display_countdown = 0;
+int8_t display_state = kLEDPatDispIx_Batt;
+bool display_hold = true;
+
+GamepadCalState gp_cal_proc_state;
+bool calibrating_joysticks = false;
+bool reset_trigger = false;
+uint8_t gamepad_mac48[6];
+int gpcal_slot_index = -1;
+JoyCalKeeper gpcal_keeper;
 
 
 //-----------------------------------------------------------------------------
@@ -358,14 +365,42 @@ void SystemReset() {
 
 
 void OnGamepadConnect(){
+  
   if (Ps3.isConnected()) {
-    Serial.println("=== Connected ===");
-    Serial.print("Gamepad MAC: ");
-    Serial.println(Ps3.getAddress());
-    Ps3.setRumble(100.0f, 70.0f);
+    
+    Serial.println(F("=== Connected ==="));
+    String macstr = Ps3.getAddress();
+    Serial.print(F("Gamepad MAC: "));
+    Serial.println(macstr);
+    
+    sscanf(
+      &macstr[0],
+      "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+      &gamepad_mac48[0], &gamepad_mac48[1], &gamepad_mac48[2],
+      &gamepad_mac48[3], &gamepad_mac48[4], &gamepad_mac48[5]
+    );
+    gpcal_slot_index = gpcal_keeper.FindSlotByMAC(gamepad_mac48);
+    
+    if (gpcal_slot_index >= 0) {
+      JoyNMVSlot fetched_slot;
+      gpcal_keeper.LoadSlot(gpcal_slot_index, fetched_slot);
+      gpcal = fetched_slot.gamepad_cal;
+      Serial.print(F("Loaded gamepad calibration from Slot "));
+      Serial.print(gpcal_slot_index);
+      Serial.println(F("."));
+    } else {
+      Serial.println(F("No calibration record found for this gamepad."));
+    }
+    
+    Ps3.setRumble(100.0f, 100); // Oddly not having any effect.
+    display_countdown = 30;
+    
   } else {
+    
     Serial.println(F("=== Disconnection notice via Connection callback! ==="));
+    
   }
+  
 }
 
 
@@ -373,8 +408,8 @@ void OnGamepadConnect(){
 
 
 void OnGamepadDisconnect(){
-  Serial.println("=== Disconnected ===");
-  Ps3.setRumble(0.0f, 0.0f);
+  // Oddly, never called.
+  Serial.println(F("=== Disconnected ==="));
 }
 
 
@@ -383,6 +418,9 @@ void OnGamepadDisconnect(){
 
 void OnGamepadEvent()
 {
+
+  const int gear_high = 1.0f;
+  const int gear_low = 0.25f;
 
   if (Ps3.event.analog_changed.stick.lx
     or Ps3.event.analog_changed.stick.ly
@@ -415,74 +453,142 @@ void OnGamepadEvent()
   }
   
   if (Ps3.event.button_down.start) {
-    if (not Ps3.data.button.square) {
+    if (not calibrating_joysticks) {
+      if (not gcs.flags.enable_motors) {
+        Ps3.setRumble(80.0f, 50);
+        display_countdown = 50;
+      }
       gcs.flags.enable_motors = true;
-      Ps3.setRumble(80.0f, 30.0f);
-    } else {
-      SystemReset();
     }
   }
   if (Ps3.event.button_down.square) {
-    if (not Ps3.data.button.start) {
+    if (Ps3.data.button.select) {
+      // Begin system reset
+      Serial.println(F("Resetting..."));
+      display_state = 0;
+      display_countdown = 70;
+        Ps3.setRumble(100.0f, 70);
       gcs.flags.enable_motors = false;
-      InitInputState(input_state, gpcal);
-      Ps3.setRumble(80.0f, 30.0f);
+      reset_trigger = true;
     } else {
-      SystemReset();
+      if (not calibrating_joysticks) {
+        if (gcs.flags.enable_motors) {
+          Ps3.setRumble(80.0f, 35);
+          display_countdown = 35;
+        }
+        gcs.flags.enable_motors = false;
+      }
     }
   }
 
-  if (Ps3.event.button_down.left) {
-    if (Ps3.data.button.select) {
-      gcs.idm = kJoystickISO;
-      gcs.flags.enable_joy_brake = true;
-      gcs.flags.use_alt_ctrl_method = false;
-      Ps3.setRumble(75.0f, 25.0f);
+  if (not calibrating_joysticks) {
+    if (Ps3.event.button_down.left) {
+      if (Ps3.data.button.select) {
+        gcs.flags.enable_joy_brake = true;
+        gcs.flags.use_alt_ctrl_method = false;
+        display_state = kLEDPatDispIx_Layout;
+        display_countdown = 30;
+        display_hold = true;
+        if (gcs.idm != kJoystickISO) Ps3.setRumble(75.0f, 30);
+        gcs.idm = kJoystickISO;
+      }
     }
-  }
-  if (Ps3.event.button_down.up) {
-    if (Ps3.data.button.select) {
-      gcs.idm = kJoystickModHPat;
-      gcs.flags.enable_joy_brake = false;
-      gcs.flags.use_alt_ctrl_method = false;
-      Ps3.setRumble(75.0f, 25.0f);
+    if (Ps3.event.button_down.up) {
+      if (Ps3.data.button.select) {
+        gcs.flags.enable_joy_brake = false;
+        gcs.flags.use_alt_ctrl_method = false;
+        display_state = kLEDPatDispIx_Layout;
+        display_countdown = 30;
+        display_hold = true;
+        if (gcs.idm != kJoystickModHPat) Ps3.setRumble(75.0f, 30);
+        gcs.idm = kJoystickModHPat;
+      }
     }
-  }
-  if (Ps3.event.button_down.right) {
-    if (Ps3.data.button.select) {
-      gcs.idm = kJoystickVH;
-      gcs.flags.enable_joy_brake = true;
-      gcs.flags.use_alt_ctrl_method = false;
-      Ps3.setRumble(75.0f, 25.0f);
+    if (Ps3.event.button_down.right) {
+      if (Ps3.data.button.select) {
+        gcs.flags.enable_joy_brake = true;
+        gcs.flags.use_alt_ctrl_method = false;
+        display_state = kLEDPatDispIx_Layout;
+        display_countdown = 30;
+        display_hold = true;
+        if (gcs.idm != kJoystickVH) Ps3.setRumble(75.0f, 30);
+        gcs.idm = kJoystickVH;
+      }
     }
-  }
-  if (Ps3.event.button_down.down) {
-    if (Ps3.data.button.select) {
-      gcs.idm = kJoystickHPat;
-      gcs.flags.enable_joy_brake = false;
-      gcs.flags.use_alt_ctrl_method = false;
-      Ps3.setRumble(75.0f, 25.0f);
+    if (Ps3.event.button_down.down) {
+      if (Ps3.data.button.select) {
+        gcs.flags.enable_joy_brake = false;
+        gcs.flags.use_alt_ctrl_method = false;
+        display_state = kLEDPatDispIx_Layout;
+        display_countdown = 30;
+        display_hold = true;
+        if (gcs.idm != kJoystickHPat) Ps3.setRumble(75.0f, 30);
+        gcs.idm = kJoystickHPat;
+      }
     }
   }
 
-  if (Ps3.event.button_down.triangle) {
-    if (Ps3.data.button.select) {
-      // Select high gear.
-      gcs.pwm_scaler = 1.0f;
-      Ps3.setPlayer(2);
-      Ps3.setRumble(90.0f, 30.0f);
-    } else {
-      // Fire the laser!
-      Ps3.setRumble(75.0f, 20.0f);
+  if (not calibrating_joysticks) {
+    if (Ps3.event.button_down.triangle) {
+      if (Ps3.data.button.select) {
+        // Select high gear.
+        display_state = kLEDPatDispIx_Speed;
+        display_countdown = 30;
+        display_hold = true;
+        if (gcs.pwm_scaler != gear_high) Ps3.setRumble(90.0f, 30);
+        gcs.pwm_scaler = gear_high;
+      } else {
+        // Fire the laser!
+        Ps3.setRumble(75.0f, 22);
+      }
+    }
+    if (Ps3.event.button_down.cross) {
+      if (Ps3.data.button.select) {
+        // Select low gear.
+        display_state = kLEDPatDispIx_Speed;
+        display_countdown = 30;
+        display_hold = true;
+        if (gcs.pwm_scaler != gear_low) Ps3.setRumble(90.0f, 30);
+        gcs.pwm_scaler = gear_low;
+      }
+    }
+    if (Ps3.event.button_down.circle) {
+      if (Ps3.data.button.select) {
+        // Enter joystick calibration mode.
+        gcs.flags.enable_motors = false;
+        calibrating_joysticks = true;
+        gp_cal_proc_state = {};
+        display_state = 4;
+        display_countdown = 40;
+        display_hold = true;
+        Ps3.setRumble(80.0f, 100);
+      }
     }
   }
 
-  if (Ps3.event.button_down.cross) {
-    if (Ps3.data.button.select) {
-      // Select low gear.
-      gcs.pwm_scaler = 0.25f;
-      Ps3.setPlayer(1);
-      Ps3.setRumble(80.0f, 25.0f);
+  if (calibrating_joysticks) {
+    gcs.flags.enable_motors = false;
+    if (display_state < 4) {
+      if (Ps3.event.button_down.triangle) {
+        // Violently shake controller to assist slop calibration.
+        Ps3.setRumble(100.0f, 500);
+        display_countdown = 200;
+      }
+      if (Ps3.event.button_down.circle) {
+        // Exit gaepad calirbation mode and save calibration.
+        calibrating_joysticks = false;
+        display_countdown = 40;
+        display_state = kLEDPatDispIx_Batt;
+        display_hold = true;
+        Ps3.setRumble(80.0f, 100);
+        JoyNMVSlot gpcal_slot;
+        memcpy(gpcal_slot.mac48, gamepad_mac48, 6);
+        gpcal_slot.gamepad_cal = gpcal;
+        gpcal_slot_index = gpcal_keeper.SaveSlot(gpcal_slot_index, gpcal_slot);
+        Serial.print(F("Saved gamepad calibration to Slot "));
+        Serial.print(gpcal_slot_index);
+        Serial.println(F("."));
+      }
     }
   }
 
@@ -494,8 +600,8 @@ void OnGamepadEvent()
 //-----------------------------------------------------------------------------
 
 
-void setup()
-{
+void setup() {
+  
   const char* mac_str = "47:4f:41:54:53:45";  // "GOATSE"
   
   // Choose a moderate PWM frequency. Optocoupler smearing was rather
@@ -536,7 +642,7 @@ void setup()
   Ps3.attachOnConnect(OnGamepadConnect);
   Ps3.attachOnDisconnect(OnGamepadDisconnect);
   Serial.println();
-  Serial.print("Host MAC: ");
+  Serial.print(F("Host MAC: "));
   Serial.println(mac_str);
   Ps3.begin(mac_str);
 
@@ -599,7 +705,7 @@ void loop() {
       input_state.righttrigger = Ps3.data.analog.button.r2;
       input_state.buttons = Ps3.data.button;
     }
-    
+
     AnimateGCSAndCar(gcs, input_state, gpcal, car);
     blinkers.input = 0;
     blinkers.input = (input_state.buttons.l1 << 1)
@@ -669,104 +775,187 @@ void loop() {
     //    and (blinkers.phase < blinkers.on_period));
 
     if (0) {
-      if (prev_joy_braking_state != car.speed_ctrl.joy_braking_state) {
-        if (prev_joy_braking_state == 0) {
-          Ps3.setRumble(100.0f, 40.0f);
-        } else {
-          Ps3.setRumble(80.0f, 30.0f);
+      if (Ps3.isConnected()) {
+        if (prev_joy_braking_state != car.speed_ctrl.joy_braking_state) {
+          if (prev_joy_braking_state == 0) {
+            Ps3.setRumble(100.0f, 40);
+          } else {
+            Ps3.setRumble(80.0f, 30);
+          }
         }
       }
     }
-
+  
     bt_activity.Animate();
     bt_activity.Integrate_ms(delta_ms);
     WritePins(vo_states, vo_pins, kNumVOs);
-
-    const float cum_period = 0.2f;
-    cum_time += delta_time;
-    ++iter_count;
-
-    //delay(50); // <<<<<<<<<<<< Testing
-    if (1 or cum_time >= cum_period) {
-
-      float freq = float(iter_count) / cum_period;
-
-      if (0) {
-        SetArtCarSimStateStr(acs_state_buf, input_state, car, gcs, blinkers);
-        Serial.println(acs_state_buf);
-      }
-
-      if (0) {
-        float ts = -JoyAxis2Float(input_state.lefty, gpcal.lefty)
-            * car.max_body_speed;
-        Serial.print(ts); Serial.print(" ");
-        //Serial.print(car.turn_ctrl.x); Serial.print(" ");
-        Serial.print(car.speed_ctrl.target_speed); Serial.print(" ");
-        Serial.print(car.speed_ctrl.current_speed); Serial.print(" ");
-        Serial.print(car.lw_ctrl.current_speed); Serial.print(" ");
-        Serial.print(car.rw_ctrl.current_speed); Serial.print(" ");
-        Serial.println();
-      }
-
-      cum_time -= cum_period;
-      iter_count = 0;
-    }
-    
-    prev_joy_braking_state = car.speed_ctrl.joy_braking_state;
-
-    display_countdown -= delta_ms;
-    
-    if (display_countdown <= delta_ms) {
-
-      int playernum;
+  
+    if (Ps3.isConnected() and not calibrating_joysticks and not reset_trigger) {
       
-      switch (display_state) {
+      const float cum_period = 0.2f;
+      cum_time += delta_time;
+      ++iter_count;
+  
+      //delay(50); // <<<<<<<<<<<< Testing
+      if (cum_time >= cum_period) {
+  
+        float freq = float(iter_count) / cum_period;
+  
+        if (0) {
+          SetArtCarSimStateStr(acs_state_buf, input_state, car, gcs, blinkers);
+          Serial.println(acs_state_buf);
+        }
+  
+        if (0) {
+          float ts = -JoyAxis2Float(input_state.lefty, gpcal.lefty)
+              * car.max_body_speed;
+          Serial.print(ts); Serial.print(" ");
+          //Serial.print(car.turn_ctrl.x); Serial.print(" ");
+          Serial.print(car.speed_ctrl.target_speed); Serial.print(" ");
+          Serial.print(car.speed_ctrl.current_speed); Serial.print(" ");
+          Serial.print(car.lw_ctrl.current_speed); Serial.print(" ");
+          Serial.print(car.rw_ctrl.current_speed); Serial.print(" ");
+          Serial.println();
+        }
+
+        if (0) {
+          float x0 = float(input_state.leftx - 128) / 128.0f;
+          float x1 = JoyAxis2Float(input_state.leftx, gpcal.leftx);
+          Serial.print(x0); Serial.print(" ");
+          Serial.print(x1); Serial.print(" ");
+          Serial.println();
+        }
         
-        case 0:
-          switch (Ps3.data.status.battery) {
-            case ps3_status_battery_full:     playernum = 10; break;
-            case ps3_status_battery_high:     playernum = 9; break;
-            case ps3_status_battery_low:      playernum = 7; break;
-            case ps3_status_battery_dying:    playernum = 4; break;
-            case ps3_status_battery_shutdown: playernum = 4; break;
-            case ps3_status_battery_charging: playernum = 0; break;
-            default: playernum = 0; break;
-          }
-          if (!playernum) {
-            playernum = 10;
-          }
-          Ps3.setPlayer(playernum);
-          display_countdown += 1500;
-          display_state = 1;
-          break;
-          
-        case 1:
-          display_countdown += 1500;
-          display_state = 2;
-          switch (gcs.idm) {
-            case kJoystickVH:       playernum = 8; break;
-            case kJoystickISO:      playernum = 3; break;
-            case kJoystickHPat:     playernum = 5; break;
-            case kJoystickModHPat:  playernum = 6; break;
-            default: playernum = 0; break;
-          }
-          if (playernum) Ps3.setPlayer(playernum);
-          break;
-          
-        default:
-          if (gcs.pwm_scaler >= 0.95f) {
-            Ps3.setPlayer(2);  // Full speed range
-          } else {
-            Ps3.setPlayer(1);  // Low speed range
-          }
-          display_countdown += 2000;
+        cum_time -= cum_period;
+        iter_count = 0;
+      }
+      
+      prev_joy_braking_state = car.speed_ctrl.joy_braking_state;
+  
+      display_countdown -= delta_ms;
+      
+      if (display_countdown <= 0) {
+  
+        display_countdown += kLEDPatMilliseconds;
+        if (not display_hold) {
+          display_state += 1;
+        }
+        if (display_state >= kLEDPatDispIx_NumItems) {
           display_state = 0;
-          break;
+        }
+        display_hold = false;
+  
+        int playernum;
+        
+        switch (display_state) {
           
+          case kLEDPatDispIx_Batt:
+            switch (Ps3.data.status.battery) {
+              case ps3_status_battery_full:
+                playernum = kLEDPat_BattLevel4;
+                break;
+              case ps3_status_battery_high:
+                playernum = kLEDPat_BattLevel3;
+                break;
+              case ps3_status_battery_low:  
+                playernum = kLEDPat_BattLevel2;
+                break;
+              case ps3_status_battery_dying:
+                playernum = kLEDPat_BattLevel1;
+                break;
+              case ps3_status_battery_shutdown:
+                playernum = kLEDPat_BattLevel1;
+                break;
+              case ps3_status_battery_charging:
+                playernum = 0;
+                break;
+              default:
+                playernum = 0;
+                break;
+            }
+            if (!playernum) {
+              playernum = 10;
+            }
+            Ps3.setPlayer(playernum);
+            break;
+            
+          case kLEDPatDispIx_Layout:
+            switch (gcs.idm) {
+              case kJoystickVH:       playernum = kLEDPat_JoyVH; break;
+              case kJoystickISO:      playernum = kLEDPat_JoyISO; break;
+              case kJoystickHPat:     playernum = kLEDPat_JoyHPat; break;
+              case kJoystickModHPat:  playernum = kLEDPat_JoyModHPat; break;
+              default: playernum = 0; break;
+            }
+            if (playernum) {
+              Ps3.setPlayer(playernum);
+            }
+            break;
+            
+          case kLEDPatDispIx_Speed:
+            if (gcs.pwm_scaler < 0.95f) {
+              Ps3.setPlayer(kLEDPat_Slow);
+            } else {
+              Ps3.setPlayer(kLEDPat_Fast);
+            }
+            break;
+            
+          default:
+            break;
+            
+        }
+        
       }
       
     }
     
+    if (Ps3.isConnected() and calibrating_joysticks and not reset_trigger) {
+
+      CalibrateGamepad(
+        gpcal,
+        input_state,
+        gp_cal_proc_state,
+        delta_ms
+      );
+
+      display_countdown -= delta_ms;
+      if (display_countdown <= 0) {
+        display_countdown += 100;
+        if (not display_hold) {
+          display_state = (display_state + 1) & 3;
+        }
+        display_hold = false;  
+        Ps3.setPlayer((display_state & 3) + 1);
+      }
+      
+    }
+
+    if (reset_trigger) {
+
+      display_countdown -= delta_ms;
+      if (display_countdown <= 0) {
+        display_countdown += 100;
+        display_state = (display_state + 1) & 31;
+        display_hold = false;
+        if (Ps3.isConnected()) {
+          if (display_state < 10) {  
+            Ps3.setPlayer((display_state & 1) ? 1 : 4);
+          } else {
+            Ps3.setPlayer(10);
+          }
+        }
+      }
+
+      if (display_state > 10) {
+        if (Ps3.isConnected()) {
+          Ps3.end();
+        }
+        if (display_state > 13) {
+          SystemReset();
+        }
+      }
+      
+    }
     
   } // A definite time has passed.
   

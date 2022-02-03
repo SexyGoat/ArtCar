@@ -9,7 +9,7 @@
 
 // This file is part of ArtCar.
 //
-// ArtCar is free software: you can redistribute it and/or modify it
+// ArtCar is free software: You can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
@@ -39,8 +39,8 @@ class CarSpeedCtrl: public SpeedCtrl {
 protected:
   MotorAccLimits effective_mal;
 public:
-  const MotorAccLimits &cruise_mal;
-  const MotorAccLimits &braking_mal;
+  const MotorAccLimits& cruise_mal;
+  const MotorAccLimits& braking_mal;
   float throttle_factor;
   float joy_brake_speed_threshold;
   float lever_pos;
@@ -50,16 +50,16 @@ public:
   bool enable_joy_brake;
   int8_t joy_braking_state;
   CarSpeedCtrl(
-    const MotorAccLimits &cruise_mal,
-    const MotorAccLimits &braking_mal,
+    const MotorAccLimits& cruise_mal,
+    const MotorAccLimits& braking_mal,
     float throttle_factor,
     bool enable_throttle,
     float joy_brake_speed_threshold,
     bool enable_joy_brake
   );
   CarSpeedCtrl(
-    const MotorAccLimits &cruise_mal,
-    const MotorAccLimits &braking_mal
+    const MotorAccLimits& cruise_mal,
+    const MotorAccLimits& braking_mal
   );
   void Animate();
 };

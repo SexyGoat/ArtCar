@@ -7,7 +7,7 @@
 
 // This file is part of ArtCar.
 //
-// ArtCar is free software: you can redistribute it and/or modify it
+// ArtCar is free software: You can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
@@ -34,7 +34,7 @@
 //-----------------------------------------------------------------------------
 
 
-void WritePin(bool logical_state, const VOPin &vo_desc) {
+void WritePin(bool logical_state, const VOPin& vo_desc) {
   bool state = (logical_state ^ vo_desc.sense) & 1;
   switch (vo_desc.drive_mode) {
     case kVOutputDriveSink:
@@ -84,7 +84,7 @@ void WritePins(uint32_t vo_states, const VOPin vo_array[], int vo_count) {
 //-----------------------------------------------------------------------------
 
 
-void ConfigPin(bool logical_state, const VOPin &vo_desc) {
+void ConfigPin(bool logical_state, const VOPin& vo_desc) {
   if (vo_desc.drive_mode == kVOutputDriveSink) {
     pinMode(vo_desc.arduino_pin, OUTPUT);
   }

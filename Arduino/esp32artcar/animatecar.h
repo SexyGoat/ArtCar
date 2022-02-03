@@ -9,7 +9,7 @@
 
 // This file is part of ArtCar.
 //
-// ArtCar is free software: you can redistribute it and/or modify it
+// ArtCar is free software: You can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
@@ -38,10 +38,10 @@
 
 
 void AnimateGCSAndCar(
-  GeneralCtrlState &gcs,
-  InputState &inp,
-  GamepadCal &gpcal,
-  Car &car
+  GeneralCtrlState& gcs,
+  InputState& inp,
+  GamepadCal& gpcal,
+  Car& car
 );
 
 
@@ -49,8 +49,8 @@ void AnimateGCSAndCar(
 
 
 void IntegrateGCSAndCar(
-  GeneralCtrlState &gcs,
-  Car &car,
+  GeneralCtrlState& gcs,
+  Car& car,
   float delta_time
 );
 

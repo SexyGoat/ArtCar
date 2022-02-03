@@ -9,7 +9,7 @@
 
 // This file is part of ArtCar.
 //
-// ArtCar is free software: you can redistribute it and/or modify it
+// ArtCar is free software: You can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
@@ -55,9 +55,9 @@ typedef struct {
 //-----------------------------------------------------------------------------
 
 
-void ConfigPin(bool logical_state, const VOPin &vo_desc);
+void ConfigPin(bool logical_state, const VOPin& vo_desc);
 void ConfigPins(uint32_t vo_states, const VOPin vo_array[], int vo_count);
-void WritePin(bool logical_state, const VOPin &vo_desc);
+void WritePin(bool logical_state, const VOPin& vo_desc);
 void WritePins(uint32_t vo_states, const VOPin vo_array[], int vo_count);
 
 

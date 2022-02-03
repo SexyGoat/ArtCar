@@ -1,7 +1,7 @@
-#ifndef BLINKERS_H_
-#define BLINKERS_H_
+#ifndef JOYCALNVM_H_
+#define JOYCALNVM_H_
 //-----------------------------------------------------------------------------
-// Blinkers (direction indicators)
+// Gamepad calibration saved to non-volatile memory
 //-----------------------------------------------------------------------------
 
 
@@ -27,27 +27,44 @@
 
 
 #include <stdint.h>
+#include <Preferences.h>
+
+#include "joycal.h"
+
+
+//-----------------------------------------------------------------------------
+// Fun stuff
+//-----------------------------------------------------------------------------
+
+
+typedef struct {
+  uint8_t seq_num;
+  uint8_t mac48[6];
+  GamepadCal gamepad_cal;
+} JoyNMVSlot;
 
 
 //-----------------------------------------------------------------------------
 
 
-class Blinkers {
+class JoyCalKeeper {
 public:
-  uint8_t input;  // Bit 1 = Left, bit 0 = Right
-  uint8_t prev_input;
-  uint8_t state;  // Bit 1 = Left, bit 0 = Right
-  uint16_t period;
-  uint16_t on_period;
-  uint16_t phase;
-  uint16_t left_db_timer;
-  uint16_t right_db_timer;
-  Blinkers();
-  void Animate();
-  void Integrate_ms(int delta_time_ms);
+  static const int num_slots = 4;
+  int FindSlotByMAC(uint8_t mac48[6]);
+  void LoadSlot(int slot_index, JoyNMVSlot& slot_to_load);
+  int SaveSlot(int slot_index, JoyNMVSlot& slot_to_save);
 };
 
 
 //-----------------------------------------------------------------------------
+// Joy!
+//-----------------------------------------------------------------------------
 
-#endif  // BLINKERS_H_
+
+//bool MacExists
+
+
+
+//-----------------------------------------------------------------------------
+
+#endif  // JOYCALNVM_H_

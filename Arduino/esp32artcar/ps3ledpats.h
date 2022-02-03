@@ -1,7 +1,7 @@
-#ifndef BLINKERS_H_
-#define BLINKERS_H_
+#ifndef PS3LEDPATS_H_
+#define PS3LEDPATS_H_
 //-----------------------------------------------------------------------------
-// Blinkers (direction indicators)
+// PS3 LED patterns
 //-----------------------------------------------------------------------------
 
 
@@ -26,28 +26,33 @@
 //-----------------------------------------------------------------------------
 
 
-#include <stdint.h>
+#define kLEDPatMilliseconds 1250
 
 
 //-----------------------------------------------------------------------------
 
 
-class Blinkers {
-public:
-  uint8_t input;  // Bit 1 = Left, bit 0 = Right
-  uint8_t prev_input;
-  uint8_t state;  // Bit 1 = Left, bit 0 = Right
-  uint16_t period;
-  uint16_t on_period;
-  uint16_t phase;
-  uint16_t left_db_timer;
-  uint16_t right_db_timer;
-  Blinkers();
-  void Animate();
-  void Integrate_ms(int delta_time_ms);
+enum {
+  kLEDPat_BattLevel4 = 10,  // 1111
+  kLEDPat_BattLevel3 = 9,   // 1110
+  kLEDPat_BattLevel2 = 7,   // 1100
+  kLEDPat_BattLevel1 = 4,   // 1000
+  kLEDPat_JoyISO = 3,       // 0100
+  kLEDPat_JoyVH = 8,        // 1101
+  kLEDPat_JoyModHPat = 6,   // 1010
+  kLEDPat_JoyHPat = 5,      // 1001
+  kLEDPat_Slow = 1,         // 0001
+  kLEDPat_Fast = 2,         // 0010
+};
+
+enum {
+  kLEDPatDispIx_Batt = 0,
+  kLEDPatDispIx_Layout,
+  kLEDPatDispIx_Speed,
+  kLEDPatDispIx_NumItems,
 };
 
 
 //-----------------------------------------------------------------------------
 
-#endif  // BLINKERS_H_
+#endif  // PS3LEDPATS_H_
